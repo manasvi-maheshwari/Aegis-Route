@@ -26,8 +26,6 @@ Aegis-Route/
 │   │   └── style.css              # Command center styling
 │   └── js/
 │       └── map.js                 # Leaflet map logic & backend integration
-├── paper/                         # Documentation and research papers
-├── presentation/                  # Project slide decks
 └── README.md                      # Project documentation
 
 ```
