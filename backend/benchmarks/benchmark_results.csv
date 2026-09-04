@@ -1,0 +1,5 @@
+Algorithm,Execution Time (ms),Distance (m),Risk Score,Fully Safe
+Dijkstra (baseline),3.098,13972.7,2800.0,True
+A* (baseline),0.56,13972.7,2800.0,True
+D* Lite (first plan),1.594,13972.7,2800.0,True
+NSGA-II (Pareto search),3.863,13972.7,2800.0,True

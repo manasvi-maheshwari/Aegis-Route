@@ -1,0 +1,371 @@
+/* ==========================================================================
+   DESIGN TOKENS
+   A "disaster operations center" visual language: deep navy base (not pure
+   black), amber for hazards/warnings, cyan for the primary route colour,
+   green/red reserved for safe/unsafe states. Space Grotesk carries the
+   technical, geometric personality in headings; Inter is used for body
+   copy; JetBrains Mono is reserved ONLY for numeric readouts (distances,
+   timings) so data visually reads as data.
+   ========================================================================== */
+:root {
+  --bg-deep:      #070B14;
+  --bg-panel:     #0E1626;
+  --bg-panel-2:   #131D33;
+  --border:       #22304A;
+  --border-soft:  #1A2438;
+
+  --text-main:    #E7ECF5;
+  --text-mute:    #8291AC;
+  --text-faint:   #4E5C78;
+
+  --accent-amber: #F59E0B;
+  --accent-red:   #EF4444;
+  --accent-cyan:  #38BDF8;
+  --accent-green: #22C55E;
+  --accent-purple:#A78BFA;
+
+  --font-head: 'Space Grotesk', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg-deep);
+  color: var(--text-main);
+  font-family: var(--font-body);
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   TOP BAR
+   ========================================================================== */
+.topbar {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+
+.topbar-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--bg-deep);
+  background: var(--accent-amber);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.topbar h1 {
+  font-family: var(--font-head);
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-main);
+}
+
+.topbar-right { display: flex; align-items: center; gap: 20px; }
+
+.clock {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-mute);
+}
+
+.conn-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-mute);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: background 0.2s;
+}
+.dot.online { background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
+.dot.offline { background: var(--accent-red); box-shadow: 0 0 8px var(--accent-red); }
+
+/* ==========================================================================
+   LAYOUT: rail | map | telemetry
+   ========================================================================== */
+.layout {
+  display: flex;
+  height: calc(100vh - 56px);
+}
+
+.rail, .telemetry {
+  width: 300px;
+  flex-shrink: 0;
+  background: var(--bg-panel);
+  padding: 18px 16px;
+  overflow-y: auto;
+}
+.rail { border-right: 1px solid var(--border); }
+.telemetry { border-left: 1px solid var(--border); }
+
+.map-wrap { flex: 1; position: relative; }
+#map { width: 100%; height: 100%; background: var(--bg-deep); }
+
+/* ==========================================================================
+   RAIL BLOCKS
+   ========================================================================== */
+.rail-block { margin-bottom: 22px; }
+
+.rail-block-title {
+  font-family: var(--font-head);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-mute);
+  margin-bottom: 10px;
+  padding-left: 8px;
+  border-left: 2px solid var(--accent-cyan);
+}
+
+.hint {
+  font-size: 12.5px;
+  color: var(--text-mute);
+  line-height: 1.5;
+  margin: 0 0 12px 0;
+}
+
+/* ---- Algorithm selector grid ---- */
+.algo-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.algo-btn {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-main);
+  padding: 10px 10px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.algo-btn:hover { border-color: var(--accent-cyan); }
+.algo-btn.active {
+  background: linear-gradient(160deg, rgba(56,189,248,0.14), rgba(56,189,248,0.03));
+  border-color: var(--accent-cyan);
+}
+.algo-name { font-family: var(--font-head); font-size: 13px; font-weight: 600; }
+.algo-sub { font-size: 10.5px; color: var(--text-mute); }
+
+/* ---- Buttons ---- */
+.btn {
+  width: 100%;
+  padding: 12px 14px;
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: filter 0.15s, transform 0.05s;
+}
+.btn:active { transform: scale(0.98); }
+
+.btn-primary { background: var(--accent-cyan); color: #04121C; }
+.btn-primary:hover { filter: brightness(1.1); }
+
+.btn-compare {
+  background: transparent;
+  border: 1px solid var(--accent-purple);
+  color: var(--accent-purple);
+}
+.btn-compare:hover { background: rgba(167,139,250,0.1); }
+
+.btn-danger {
+  background: transparent;
+  border: 1px solid var(--accent-red);
+  color: var(--accent-red);
+}
+.btn-danger:hover { background: rgba(239,68,68,0.1); }
+
+/* ---- Hazard size slider ---- */
+.hazard-radius-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--text-mute);
+}
+.hazard-radius-row label { flex-shrink: 0; }
+.hazard-radius-row input[type=range] { flex: 1; accent-color: var(--accent-amber); }
+.hazard-radius-row span { font-family: var(--font-mono); color: var(--accent-amber); width: 14px; }
+
+/* ---- Status log ---- */
+.status-log {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  max-height: 220px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-mute);
+}
+.log-line { border-bottom: 1px dashed var(--border-soft); padding: 3px 0; }
+.log-line:last-child { border-bottom: none; }
+.log-line.err { color: var(--accent-red); }
+.log-line.ok { color: var(--accent-green); }
+.log-line.info { color: var(--accent-cyan); }
+
+/* ==========================================================================
+   MAP OVERLAYS
+   ========================================================================== */
+.legend {
+  position: absolute;
+  bottom: 18px;
+  left: 18px;
+  background: rgba(14, 22, 38, 0.92);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--text-mute);
+  backdrop-filter: blur(4px);
+  z-index: 500;
+}
+.legend-title {
+  font-family: var(--font-head);
+  font-size: 11px;
+  color: var(--text-main);
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.legend-row:last-child { margin-bottom: 0; }
+.swatch { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.swatch.core { background: var(--accent-red); }
+.swatch.danger { background: transparent; border: 2px dashed var(--accent-amber); }
+.swatch.line { height: 3px; border-radius: 2px; width: 16px; }
+
+/* ==========================================================================
+   TELEMETRY PANEL
+   ========================================================================== */
+.telemetry-empty {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  line-height: 1.6;
+  padding: 10px 8px;
+}
+
+.telemetry-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.telemetry-cards.hidden, .hidden { display: none !important; }
+
+.metric-card {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+.metric-label {
+  font-size: 10.5px;
+  color: var(--text-mute);
+  text-transform: none;
+  margin-bottom: 6px;
+}
+.metric-value {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--text-main);
+}
+.metric-value.good { color: var(--accent-green); }
+.metric-value.bad { color: var(--accent-red); }
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  margin-top: 4px;
+}
+.compare-table th {
+  text-align: left;
+  color: var(--text-mute);
+  font-weight: 500;
+  font-family: var(--font-head);
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.compare-table td {
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  color: var(--text-main);
+}
+.compare-table td:first-child { font-family: var(--font-body); }
+
+.explainer {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-mute);
+}
+.explainer strong { color: var(--accent-cyan); }
+
+/* ==========================================================================
+   LEAFLET OVERRIDES -- dark basemap harmonizes with panel colours
+   ========================================================================== */
+.leaflet-container { background: var(--bg-deep); font-family: var(--font-body); }
+.leaflet-control-attribution {
+  background: rgba(7, 11, 20, 0.7) !important;
+  color: var(--text-faint) !important;
+}
+.leaflet-control-attribution a { color: var(--text-mute) !important; }
+
+/* One deliberate animated moment: a hazard "landing" pulse when placed */
+@keyframes hazardPulse {
+  0% { transform: scale(0.4); opacity: 0.9; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.hazard-pulse {
+  border: 2px solid var(--accent-amber);
+  border-radius: 50%;
+  position: absolute;
+  animation: hazardPulse 0.6s ease-out;
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   RESPONSIVE FLOOR
+   ========================================================================== */
+@media (max-width: 980px) {
+  .layout { flex-direction: column; height: auto; overflow-y: auto; }
+  .rail, .telemetry { width: 100%; border: none; border-bottom: 1px solid var(--border); }
+  .map-wrap { height: 60vh; }
+}

@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aegis-Route | Disaster Rescue & Safe Route Router</title>
+<link rel="icon" href="data:,">
+<!-- Leaflet: the map engine -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+<!-- Google Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="css/style.css">
+
+<style>
+  /* Auth Modal Overlay Styles */
+  .auth-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(11, 15, 25, 0.85);
+    backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999;
+  }
+  .auth-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 32px;
+    width: 100%; max-width: 400px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+    color: #f8fafc;
+    font-family: 'Inter', sans-serif;
+  }
+  .auth-card h2 {
+    font-family: 'Space Grotesk', sans-serif;
+    margin-top: 0; margin-bottom: 8px; color: #38bdf8;
+  }
+  .auth-card p {
+    font-size: 0.875rem; color: #94a3b8; margin-bottom: 20px;
+  }
+  .auth-field { margin-bottom: 16px; }
+  .auth-field label {
+    display: block; font-size: 0.75rem; text-transform: uppercase;
+    letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 6px;
+  }
+  .auth-field input, .auth-field select {
+    width: 100%; padding: 10px 12px;
+    background: #0f172a; border: 1px solid #334155;
+    border-radius: 6px; color: #fff; font-size: 0.9rem;
+    box-sizing: border-box;
+  }
+  .auth-field input:focus, .auth-field select:focus {
+    outline: none; border-color: #38bdf8;
+  }
+  .otp-row { display: flex; gap: 8px; }
+  .otp-row input { flex: 1; }
+  .otp-row button {
+    padding: 0 12px; background: #334155; border: none;
+    color: #38bdf8; border-radius: 6px; cursor: pointer;
+    font-weight: 600; font-size: 0.8rem; white-space: nowrap;
+  }
+  .otp-row button:hover { background: #475569; }
+  .auth-btn {
+    width: 100%; padding: 12px; background: #0284c7;
+    border: none; border-radius: 6px; color: white;
+    font-weight: 600; cursor: pointer; margin-top: 8px;
+    font-family: 'Space Grotesk', sans-serif;
+  }
+  .auth-btn:hover { background: #0369a1; }
+  .auth-switch {
+    margin-top: 16px; text-align: center; font-size: 0.85rem; color: #94a3b8;
+  }
+  .auth-switch a { color: #38bdf8; text-decoration: none; cursor: pointer; }
+  .auth-switch a:hover { text-decoration: underline; }
+  .auth-error {
+    color: #f87171; font-size: 0.8rem; margin-top: 10px; display: none;
+  }
+  .user-badge {
+    display: flex; align-items: center; gap: 10px;
+    background: #1e293b; padding: 4px 10px; border-radius: 20px;
+    border: 1px solid #334155; font-size: 0.85rem; color: #f8fafc;
+  }
+  .logout-btn {
+    background: transparent; border: none; color: #f87171;
+    cursor: pointer; font-size: 0.8rem; font-weight: 600;
+  }
+</style>
+</head>
+<body>
+
+  <!-- ======================= AUTH MODAL ======================= -->
+  <div class="auth-overlay" id="authOverlay">
+    <div class="auth-card">
+      
+      <!-- LOGIN FORM -->
+      <form id="loginForm">
+        <h2>Sign In</h2>
+        <p>Access the Disaster Rescue Command Center</p>
+        
+        <div class="auth-field">
+          <label>Email Address</label>
+          <input type="email" id="loginEmail" required placeholder="operator@aegis.org">
+        </div>
+        <div class="auth-field">
+          <label>Password</label>
+          <input type="password" id="loginPassword" required placeholder="••••••••">
+        </div>
+
+        <button type="submit" class="auth-btn">Authenticate</button>
+        <div class="auth-error" id="loginError"></div>
+
+        <div class="auth-switch">
+          Need access? <a onclick="toggleAuthMode('signup')">Register here</a>
+        </div>
+      </form>
+
+      <!-- SIGNUP FORM -->
+      <form id="signupForm" style="display:none;">
+        <h2>Register Account</h2>
+        <p>Create credentials for live operation routing</p>
+        
+        <div class="auth-field">
+          <label>Full Name</label>
+          <input type="text" id="signupName" required placeholder="Officer Alex Vance">
+        </div>
+        <div class="auth-field">
+          <label>Email Address</label>
+          <div class="otp-row">
+            <input type="email" id="signupEmail" required placeholder="alex@aegis.org">
+            <button type="button" onclick="handleRequestOTP()">Get OTP</button>
+          </div>
+        </div>
+        <div class="auth-field">
+          <label>Verification OTP</label>
+          <input type="text" id="signupOtp" required placeholder="6-digit code">
+        </div>
+        
+        <div class="auth-field">
+          <label>Password</label>
+          <input type="password" id="signupPassword" required placeholder="••••••••">
+        </div>
+
+        <button type="submit" class="auth-btn">Create Account</button>
+        <div class="auth-error" id="signupError"></div>
+
+        <div class="auth-switch">
+          Already registered? <a onclick="toggleAuthMode('login')">Sign In</a>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
+  <!-- ======================= TOP STATUS BAR ======================= -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="topbar-badge">LIVE OPS</span>
+      <h1>Aegis-Route: Disaster Rescue &amp; Safe Route Router</h1>
+    </div>
+    <div class="topbar-right">
+      <div id="userBadge" class="user-badge" style="display:none;">
+        <span id="userName">User</span>
+        <button class="logout-btn" onclick="handleLogout()">Logout</button>
+      </div>
+      <div class="clock" id="clock">--:--:--</div>
+      <div class="conn-status" id="connStatus">
+        <span class="dot" id="connDot"></span>
+        <span id="connLabel">Checking backend&hellip;</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <!-- ======================= LEFT CONTROL RAIL ======================= -->
+    <aside class="rail">
+
+      <section class="rail-block">
+        <div class="rail-block-title">Routing algorithm</div>
+        <div class="algo-grid" id="algoGrid">
+          <button class="algo-btn active" data-algo="d_star">
+            <span class="algo-name">D* Lite</span>
+            <span class="algo-sub">Dynamic replanning</span>
+          </button>
+          <button class="algo-btn" data-algo="nsga2">
+            <span class="algo-name">NSGA-II</span>
+            <span class="algo-sub">Multi-objective</span>
+          </button>
+          <button class="algo-btn" data-algo="a_star">
+            <span class="algo-name">A*</span>
+            <span class="algo-sub">Baseline</span>
+          </button>
+          <button class="algo-btn" data-algo="dijkstra">
+            <span class="algo-name">Dijkstra</span>
+            <span class="algo-sub">Baseline</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="rail-block">
+        <button class="btn btn-primary" id="runBtn">Calculate route</button>
+        <button class="btn btn-compare" id="compareBtn">Compare all algorithms</button>
+      </section>
+
+      <section class="rail-block">
+        <div class="rail-block-title">Hazard tools</div>
+        <p class="hint">Click anywhere on the map to drop a hazard zone. The solid ring is impassable; the dashed ring is passable but risky.</p>
+        <div class="hazard-radius-row">
+          <label for="hazardRadius">New hazard size</label>
+          <input type="range" id="hazardRadius" min="1" max="6" step="1" value="3">
+          <span id="hazardRadiusVal">3</span>
+        </div>
+        <button class="btn btn-danger" id="resetBtn">Reset scenario</button>
+      </section>
+
+      <section class="rail-block" id="statusBlock">
+        <div class="rail-block-title">System log</div>
+        <div class="status-log" id="statusLog">
+          <div class="log-line">Ready. Click the map to add a hazard, then calculate a route.</div>
+        </div>
+      </section>
+
+    </aside>
+
+    <!-- ======================= CENTER MAP ======================= -->
+    <main class="map-wrap">
+      <div id="map"></div>
+
+      <div class="legend" id="legend">
+        <div class="legend-title">Legend</div>
+        <div class="legend-row"><span class="swatch core"></span> Hazard core (impassable)</div>
+        <div class="legend-row"><span class="swatch danger"></span> Danger ring (risky, passable)</div>
+        <div class="legend-row"><span class="swatch line" style="background:#38BDF8"></span> Route</div>
+      </div>
+    </main>
+
+    <!-- ======================= RIGHT TELEMETRY PANEL ======================= -->
+    <aside class="telemetry">
+      <div class="rail-block-title">Route telemetry</div>
+      <div id="telemetryEmpty" class="telemetry-empty">
+        Run an algorithm to see distance, risk and timing here.
+      </div>
+      <div id="telemetrySingle" class="telemetry-cards hidden">
+        <div class="metric-card">
+          <div class="metric-label">Distance</div>
+          <div class="metric-value" id="metDistance">&ndash;</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Risk exposure</div>
+          <div class="metric-value" id="metRisk">&ndash;</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Compute time</div>
+          <div class="metric-value" id="metTime">&ndash;</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Safety</div>
+          <div class="metric-value" id="metSafe">&ndash;</div>
+        </div>
+        <div class="metric-card" id="metReusedCard" style="display:none;">
+          <div class="metric-label">D* Lite memory</div>
+          <div class="metric-value" id="metReused">&ndash;</div>
+        </div>
+      </div>
+
+      <div id="compareTableWrap" class="hidden">
+        <div class="rail-block-title" style="margin-top:18px;">Comparison table</div>
+        <table class="compare-table" id="compareTable">
+          <thead>
+            <tr><th>Algorithm</th><th>Dist (m)</th><th>Risk</th><th>Time (ms)</th></tr>
+          </thead>
+          <tbody id="compareTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="rail-block-title" style="margin-top:22px;">Why these algorithms?</div>
+      <div class="explainer" id="explainerBox">
+        <strong>D* Lite</strong> remembers the last route it planned. If nothing near that route has changed, it reuses it instantly instead of re-searching the whole map &mdash; critical when hazards keep updating live.
+      </div>
+
+    </aside>
+
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <!-- Inline Authentication Logic -->
+  <script>
+    const API_BASE = "http://127.0.0.1:5000";
+
+    function toggleAuthMode(mode) {
+      document.getElementById('loginForm').style.display = mode === 'login' ? 'block' : 'none';
+      document.getElementById('signupForm').style.display = mode === 'signup' ? 'block' : 'none';
+    }
+
+    function checkUserSession() {
+      const user = JSON.parse(localStorage.getItem('aegis_user'));
+      if (user) {
+        document.getElementById('authOverlay').style.display = 'none';
+        document.getElementById('userBadge').style.display = 'flex';
+        document.getElementById('userName').innerText = user.full_name;
+      } else {
+        document.getElementById('authOverlay').style.display = 'flex';
+        document.getElementById('userBadge').style.display = 'none';
+      }
+    }
+
+    async function handleRequestOTP() {
+      const email = document.getElementById('signupEmail').value;
+      const errBox = document.getElementById('signupError');
+      errBox.style.display = 'none';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/request-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          alert(`OTP sent! (Check backend logs if simulating): ${data.message}`);
+        } else {
+          errBox.innerText = data.message;
+          errBox.style.display = 'block';
+        }
+      } catch (err) {
+        errBox.innerText = "Failed to connect to backend.";
+        errBox.style.display = 'block';
+      }
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('loginEmail').value;
+      const password = document.getElementById('loginPassword').value;
+      const errBox = document.getElementById('loginError');
+      errBox.style.display = 'none';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'success') {
+          localStorage.setItem('aegis_user', JSON.stringify(data.user));
+          checkUserSession();
+        } else {
+          errBox.innerText = data.message || "Invalid credentials";
+          errBox.style.display = 'block';
+        }
+      } catch (err) {
+        errBox.innerText = "Error connecting to backend API.";
+        errBox.style.display = 'block';
+      }
+    });
+
+    document.getElementById('signupForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const full_name = document.getElementById('signupName').value;
+      const email = document.getElementById('signupEmail').value;
+      const otp = document.getElementById('signupOtp').value;
+      const password = document.getElementById('signupPassword').value;
+      const errBox = document.getElementById('signupError');
+      errBox.style.display = 'none';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ full_name, email, otp, password })
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'success') {
+          alert('Registration successful! Please sign in.');
+          toggleAuthMode('login');
+        } else {
+          errBox.innerText = data.message || "Registration failed.";
+          errBox.style.display = 'block';
+        }
+      } catch (err) {
+        errBox.innerText = "Error connecting to backend API.";
+        errBox.style.display = 'block';
+      }
+    });
+
+    function handleLogout() {
+      localStorage.removeItem('aegis_user');
+      checkUserSession();
+    }
+
+    window.addEventListener('DOMContentLoaded', checkUserSession);
+  </script>
+
+  <script src="js/map.js"></script>
+</body>
+</html>
