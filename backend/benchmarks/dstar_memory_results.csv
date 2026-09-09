@@ -1,0 +1,6 @@
+Stage,mean,median,min,max,std
+1. Cold start (full search),1.302,1.0528,0.9031,3.2759,0.6172
+2. Same scenario (memory reuse),0.0055,0.0051,0.0045,0.0099,0.0013
+3. New hazard appears (forced replan),1.0589,0.9207,0.8829,2.1216,0.3291
+4. Fresh Dijkstra on updated graph (no cache),1.2216,0.9113,0.8815,2.2247,0.538
+5. Fresh A* on updated graph (no cache),0.1747,0.1729,0.1705,0.1946,0.0061
