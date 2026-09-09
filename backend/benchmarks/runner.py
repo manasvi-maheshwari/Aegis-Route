@@ -144,43 +144,158 @@ def benchmark_pareto_front():
     print(f"Saved -> {plot_path}")
 
 
-def benchmark_dstar_memory():
+def benchmark_dstar_memory(n_trials=15):
     """
-    Part 3: proves WHY D* Lite is worth using over plain A*. Runs the same
-    query three times in a row:
-      1. Cold start        -> full search, no memory yet
-      2. Same scenario      -> reuse cached route, ~instant
-      3. New hazard appears -> old route broken, forced to replan
+    Part 3: proves WHY D* Lite's caching is worth using. Runs three
+    scenarios, each repeated `n_trials` times to average out timer noise
+    (a single perf_counter() sample on sub-millisecond operations can vary
+    2x run to run on a shared machine, so a one-shot measurement is not
+    reproducible or defensible on its own):
+
+      1. Cold start          -> cache empty, full Dijkstra-based search
+      2. Same scenario again -> cached route is still safe, reused as-is
+      3. New hazard appears  -> cached route is invalidated, forced replan
+
+    The hazard used in stage 3 (grid cell (2,13)) is deliberately placed
+    ON TOP of the route actually returned in stage 1/2 (verified: the
+    stage-1 path passes directly through node (2,13)), so stage 3 is a
+    genuine forced replan, not a coincidental cache hit.
+
+    For a fair point of comparison, this also times a completely fresh
+    A* and Dijkstra search on the SAME post-hazard graph, with no cache
+    involved at all. NOTE: this simplified D* Lite's "replan" step
+    internally calls the same Dijkstra routine (find_safe_path) used for
+    the baseline -- so stage 3 is expected to cost about the same as a
+    fresh Dijkstra/A* run, not less. The real saving this design provides
+    is stage 2 (skipping the search entirely when nothing relevant
+    changed), not a faster replan algorithm. All numbers below are
+    measured, not assumed.
+
+    Raw per-trial timings and the summary are written to
+    dstar_memory_results.csv so the numbers behind the chart/paper/slide
+    are independently checkable and reproducible.
     """
-    print("\n=== Benchmark 3: D* Lite memory reuse vs full replan ===")
+    print(f"\n=== Benchmark 3: D* Lite memory reuse vs full replan ({n_trials} trials each) ===")
     G = build_demo_graph()
-    DStarLite.reset_memory()
-
-    timings = {}
-
-    t0 = time.perf_counter()
-    DStarLite(G, START, GOAL).get_path()
-    timings['1. Cold start\n(full search)'] = (time.perf_counter() - t0) * 1000
-
-    t0 = time.perf_counter()
-    DStarLite(G, START, GOAL).get_path()
-    timings['2. Same scenario\n(memory reuse)'] = (time.perf_counter() - t0) * 1000
 
     # A brand new hazard lands directly ON the cached route (near node (2,13),
-    # which the previous route passes through) -> old route is no longer
+    # which the stage-1/2 route passes through) -> old route is no longer
     # safe, forcing a genuine replan instead of a reuse.
-    G2 = apply_hazard_zones(build_city_graph(15), DEMO_HAZARD + [{"grid_x": 2, "grid_y": 13, "radius": 2}])
-    t0 = time.perf_counter()
-    DStarLite(G2, START, GOAL).get_path()
-    timings['3. New hazard appears\n(forced replan)'] = (time.perf_counter() - t0) * 1000
+    HAZARD_2 = {"grid_x": 2, "grid_y": 13, "radius": 2}
+    G2 = apply_hazard_zones(build_city_graph(15), DEMO_HAZARD + [HAZARD_2])
 
-    for k, v in timings.items():
-        print(f"  {k.splitlines()[0]:35s} {v:7.3f} ms")
+    # Sanity-check (asserted, not just assumed) that the new hazard really
+    # does sit on the route the cache is holding, otherwise stage 3 would
+    # silently just be another cache hit.
+    DStarLite.reset_memory()
+    reference_path = DStarLite(G, START, GOAL).get_path()
+    hazard_on_route = not DStarLite(G2, START, GOAL)._path_still_safe(reference_path)
+    assert hazard_on_route, "Benchmark scenario is invalid: new hazard does not intersect the cached route."
 
-    plt.figure(figsize=(7, 5))
-    plt.bar(list(timings.keys()), list(timings.values()), color=['#EF4444', '#22C55E', '#F59E0B'])
-    plt.ylabel('Execution Time (ms)')
-    plt.title('D* Lite: Memory Reuse Makes Live Replanning Cheap')
+    raw_rows = []
+
+    def time_n(label, setup, fn, n=n_trials):
+        """setup() runs BEFORE the clock starts (e.g. populating the cache);
+        only fn() is timed."""
+        for trial in range(1, n + 1):
+            setup()
+            t0 = time.perf_counter()
+            result = fn()
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            raw_rows.append({"Stage": label, "Trial": trial, "Execution Time (ms)": round(elapsed_ms, 4),
+                              "Result": result})
+
+    noop = lambda: None
+
+    # Stage 1: cold start (cache cleared before every trial; only the
+    # get_path() call itself is timed, not the reset).
+    def cold_start_setup():
+        DStarLite.reset_memory()
+    def cold_start():
+        d = DStarLite(G, START, GOAL)
+        d.get_path()
+        return f"was_reused={d.was_reused}"
+    time_n('1. Cold start (full search)', cold_start_setup, cold_start)
+
+    # Stage 2: cache populated once up front, then every trial is a pure
+    # cache-hit call with nothing else timed alongside it.
+    DStarLite.reset_memory()
+    DStarLite(G, START, GOAL).get_path()
+    def cache_reuse():
+        d = DStarLite(G, START, GOAL)
+        d.get_path()
+        return f"was_reused={d.was_reused}"
+    time_n('2. Same scenario (memory reuse)', noop, cache_reuse)
+
+    # Stage 3: cache is (re)populated with the pre-hazard path in setup()
+    # (NOT timed), then only the post-hazard get_path() call -- the one
+    # that must detect the break and replan -- is timed.
+    def forced_replan_setup():
+        DStarLite.reset_memory()
+        DStarLite(G, START, GOAL).get_path()
+    def forced_replan():
+        d = DStarLite(G2, START, GOAL)
+        d.get_path()
+        return f"was_reused={d.was_reused}"
+    time_n('3. New hazard appears (forced replan)', forced_replan_setup, forced_replan)
+
+    # Baselines on the SAME post-hazard graph G2, with no cache involved
+    # at all, for direct comparison against stage 3.
+    def fresh_dijkstra():
+        find_safe_path(G2, START, GOAL, weight=risk_cost)
+        return "fresh_search"
+    time_n('4. Fresh Dijkstra on updated graph (no cache)', noop, fresh_dijkstra)
+
+    def fresh_astar():
+        nx.astar_path(G2, START, GOAL, weight=risk_cost)
+        return "fresh_search"
+    time_n('5. Fresh A* on updated graph (no cache)', noop, fresh_astar)
+
+    raw_df = pd.DataFrame(raw_rows)
+    summary_df = (raw_df.groupby('Stage')['Execution Time (ms)']
+                  .agg(['mean', 'median', 'min', 'max', 'std'])
+                  .reindex(['1. Cold start (full search)',
+                            '2. Same scenario (memory reuse)',
+                            '3. New hazard appears (forced replan)',
+                            '4. Fresh Dijkstra on updated graph (no cache)',
+                            '5. Fresh A* on updated graph (no cache)'])
+                  .round(4)
+                  .reset_index())
+
+    print(summary_df.to_string(index=False))
+
+    def mean_of(stage):
+        # Split into two steps (row filter, then column select) instead of
+        # summary_df.loc[mask, 'mean'].iloc[0] -- Pylance's pandas stubs
+        # can't prove that chained form returns a Series, and flag every
+        # scalar type pandas could theoretically return (str, bytes, date,
+        # etc.) as "no .iloc attribute". This is a static-analysis-only
+        # false positive, not a runtime bug -- the original line runs fine.
+        matching_rows = summary_df[summary_df['Stage'] == stage]
+        return float(matching_rows['mean'].iloc[0])
+    cold, reuse, replan = mean_of(summary_df['Stage'][0]), mean_of(summary_df['Stage'][1]), mean_of(summary_df['Stage'][2])
+    fresh_dij, fresh_a = mean_of(summary_df['Stage'][3]), mean_of(summary_df['Stage'][4])
+
+    print(f"\nMeasured speedup, cache reuse vs cold start : {cold / reuse:.1f}x")
+    print(f"Measured ratio, forced replan vs fresh Dijkstra: {replan / fresh_dij:.2f}x "
+          f"(expected ~1x -- this simplified D* Lite's replan step IS a Dijkstra search)")
+    print(f"Measured ratio, forced replan vs fresh A*      : {replan / fresh_a:.2f}x")
+
+    raw_csv_path = os.path.join(OUT_DIR, "dstar_memory_raw_trials.csv")
+    raw_df.to_csv(raw_csv_path, index=False)
+    print(f"Saved -> {raw_csv_path}")
+
+    summary_csv_path = os.path.join(OUT_DIR, "dstar_memory_results.csv")
+    summary_df.to_csv(summary_csv_path, index=False)
+    print(f"Saved -> {summary_csv_path}")
+
+    plt.figure(figsize=(8.5, 5.5))
+    short_labels = [s.split(' (')[0] for s in summary_df['Stage']]
+    plt.bar(short_labels, summary_df['mean'], yerr=summary_df['std'], capsize=4,
+            color=['#EF4444', '#22C55E', '#F59E0B', '#94A3B8', '#64748B'])
+    plt.ylabel(f'Mean Execution Time (ms), n={n_trials} trials')
+    plt.title('D* Lite: Cache Reuse vs. Forced Replan vs. Fresh Baseline Search')
+    plt.xticks(rotation=20, ha='right')
     plt.tight_layout()
     plot_path = os.path.join(OUT_DIR, "dstar_memory_plot.png")
     plt.savefig(plot_path, dpi=150)
