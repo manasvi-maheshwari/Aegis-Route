@@ -65,7 +65,7 @@ python app.py
 ```
 
 The server will run locally at:
-`[http://127.0.0.1:5000](http://127.0.0.1:5000)`
+`http://127.0.0.1:5000`
 
 ### Step 2: Launch the Frontend Interface
 
@@ -79,7 +79,7 @@ python -m http.server 8080
 
 ```
 
-Then navigate to `http://localhost:8080` in your web browser.
+Then navigate to [`http://localhost:8080`](http://localhost:8080) in your web browser.
 
 ---
 
@@ -112,8 +112,22 @@ This generates four output files inside `backend/benchmarks/`:
 
 ---
 
-## 6. Troubleshooting
+## 6. Spatial & Hazard Model Verification
+
+To verify the road-network graph and hazard-zone logic:
+
+```bash
+cd backend
+python tests/verify_spatial_hazard.py
+
+```
+
+This checks `utils/graph_builder.py` and `utils/hazard_mapper.py` — grid structure, edge distances, hazard risk zones, and safe routing — and prints a PASS/FAIL line for each check.
+
+---
+
+## 7. Troubleshooting
 
 * **Frontend shows "Backend offline":** Ensure the Flask server is active and has not crashed due to port conflicts.
-* **Routes are not drawing:** Open your browser console (`F12` $\rightarrow$ `Console`). Verify that network requests to `[http://127.0.0.1:5000](http://127.0.0.1:5000)` are reaching the server cleanly.
+* **Routes are not drawing:** Open your browser console (`F12` → `Console`). Verify that network requests to `http://127.0.0.1:5000` are reaching the server cleanly.
 * **Port 5000 is occupied:** If another service is using port 5000, update the port parameter in `backend/app.py` and modify `API_BASE` in `frontend/index.html` to match.
