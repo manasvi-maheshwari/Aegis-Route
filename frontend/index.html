@@ -201,6 +201,15 @@
       </section>
 
       <section class="rail-block">
+        <div class="rail-block-title">Route endpoints</div>
+        <p class="hint">Click a button, then click the map to place it. Left unset, the demo's default rescue base and disaster site are used.</p>
+        <div class="endpoint-grid">
+          <button class="btn-endpoint btn-endpoint-start" id="setStartBtn">Set rescue base</button>
+          <button class="btn-endpoint btn-endpoint-end" id="setEndBtn">Set disaster site</button>
+        </div>
+      </section>
+
+      <section class="rail-block">
         <button class="btn btn-primary" id="runBtn">Calculate route</button>
         <button class="btn btn-compare" id="compareBtn">Compare all algorithms</button>
       </section>
@@ -228,6 +237,8 @@
     <!-- ======================= CENTER MAP ======================= -->
     <main class="map-wrap">
       <div id="map"></div>
+
+      <div class="picking-banner hidden" id="pickingBanner"></div>
 
       <div class="legend" id="legend">
         <div class="legend-title">Legend</div>

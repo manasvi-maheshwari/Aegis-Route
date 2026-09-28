@@ -205,6 +205,32 @@ html, body {
 }
 .btn-danger:hover { background: rgba(239,68,68,0.1); }
 
+/* ---- Endpoint picker buttons ---- */
+.endpoint-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.btn-endpoint {
+  padding: 10px 8px;
+  border-radius: var(--radius);
+  background: transparent;
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-endpoint-start { border: 1px solid var(--accent-green); color: var(--accent-green); }
+.btn-endpoint-start:hover { background: rgba(34,197,94,0.15); }
+.btn-endpoint-start.active { background: var(--accent-green); color: #04220F; border-color: var(--accent-green); }
+
+.btn-endpoint-end { border: 1px solid var(--accent-red); color: var(--accent-red); }
+.btn-endpoint-end:hover { background: rgba(239,68,68,0.15); }
+.btn-endpoint-end.active { background: var(--accent-red); color: #2A0A0A; border-color: var(--accent-red); }
+
 /* ---- Hazard size slider ---- */
 .hazard-radius-row {
   display: flex;
@@ -347,6 +373,30 @@ html, body {
   color: var(--text-faint) !important;
 }
 .leaflet-control-attribution a { color: var(--text-mute) !important; }
+
+/* Floating instruction banner shown on the map while an endpoint pick is armed */
+.picking-banner {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 9px 20px;
+  border-radius: 999px;
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 12.5px;
+  z-index: 600;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+  animation: bannerPulse 1.4s ease-in-out infinite;
+}
+.picking-banner.hidden { display: none; }
+.picking-banner.start { background: var(--accent-green); color: #04220F; }
+.picking-banner.end { background: var(--accent-red); color: #2A0A0A; }
+
+@keyframes bannerPulse {
+  0%, 100% { box-shadow: 0 4px 14px rgba(0,0,0,0.35); }
+  50% { box-shadow: 0 4px 22px rgba(0,0,0,0.6); }
+}
 
 /* One deliberate animated moment: a hazard "landing" pulse when placed */
 @keyframes hazardPulse {
