@@ -124,6 +124,16 @@ python tests/verify_spatial_hazard.py
 
 This checks `utils/graph_builder.py` and `utils/hazard_mapper.py` — grid structure, edge distances, hazard risk zones, and safe routing — and prints a PASS/FAIL line for each check.
 
+`utils/graph_builder.py` also has an experimental `build_real_road_graph()` : a real OpenStreetMap-based street network, not yet wired into the live app, kept as a drop-in-compatible alternative to the synthetic grid. Verify it with:
+
+```bash
+cd backend
+python tests/verify_real_road_graph.py
+
+```
+
+The first run fetches a small real street network via OSMnx and caches it to `backend/data/road_network.graphml`; later runs reuse that cache instead of hitting the network.
+
 ---
 
 ## 7. Troubleshooting
