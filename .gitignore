@@ -6,3 +6,4 @@ backend/data/aegis.db
 venv/
 .venv/
 .DS_Store
+backend/cache/
