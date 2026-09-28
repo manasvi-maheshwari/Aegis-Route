@@ -2,7 +2,7 @@
    Disaster Rescue Router -- Frontend logic
    ----------------------------------------------------------------------------
    What this file does, in plain terms:
-     1. Draws the Leaflet map and the fixed start/end markers.
+     1. Draws the Leaflet map and the user-selectable start/end markers.
      2. Lets the user click the map to drop a hazard zone (sends grid
         coordinates to the backend, draws two circles -- a solid "core"
         circle that is impassable, and a dashed "danger ring" that is risky
@@ -21,8 +21,11 @@
 const BASE_LAT = 12.9716;
 const BASE_LNG = 79.1594;
 const SCALE = 0.005;
-const START_NODE = [0, 0];
-const END_NODE = [14, 14];
+const GRID_SIZE = 15;
+const DEFAULT_START = [0, 0];
+const DEFAULT_END = [14, 14];
+let startNode = [...DEFAULT_START];
+let endNode = [...DEFAULT_END];
 
 // Colours per algorithm, used consistently across single-run and compare-all
 const ALGO_COLORS = {
@@ -56,11 +59,12 @@ function gridToLatLng(gx, gy) {
   return [BASE_LAT + gx * SCALE, BASE_LNG + gy * SCALE];
 }
 
-// Fixed start (rescue base) and end (disaster site) markers
+// Start (rescue base) and end (disaster site) markers
+// pick mode below, defaulting to the corners of the demo grid.
 const startIcon = L.divIcon({ className: '', html: '<div style="background:#22C55E;width:14px;height:14px;border-radius:50%;border:2px solid #0E1626;box-shadow:0 0 8px #22C55E;"></div>' });
 const endIcon = L.divIcon({ className: '', html: '<div style="background:#EF4444;width:14px;height:14px;border-radius:2px;border:2px solid #0E1626;box-shadow:0 0 8px #EF4444;"></div>' });
-L.marker(gridToLatLng(...START_NODE), { icon: startIcon }).addTo(map).bindTooltip('Rescue base', { direction: 'top' });
-L.marker(gridToLatLng(...END_NODE), { icon: endIcon }).addTo(map).bindTooltip('Disaster site', { direction: 'top' });
+const startMarker = L.marker(gridToLatLng(...startNode), { icon: startIcon }).addTo(map).bindTooltip('Rescue base', { direction: 'top' });
+const endMarker = L.marker(gridToLatLng(...endNode), { icon: endIcon }).addTo(map).bindTooltip('Disaster site', { direction: 'top' });
 
 // ----------------------------------------------------------------------------
 // State
@@ -69,6 +73,7 @@ let activeHazards = [];     // what we send to the backend: [{grid_x, grid_y, ra
 let hazardLayers = [];      // Leaflet circle layers currently drawn
 let routeLayers = [];       // Leaflet polyline layers currently drawn
 let selectedAlgo = 'd_star';
+let pickingMode = null;     // null | 'start' | 'end' -- which marker the next map click will move
 
 // ----------------------------------------------------------------------------
 // Status log (left rail) -- small helper so every action leaves a trace,
@@ -168,12 +173,71 @@ async function loadDefaultHazard() {
   }
 }
 
-// Click-to-add hazard
+// ----------------------------------------------------------------------------
+// Endpoint picking -- arms which marker the next map click moves. While
+// armed, clicking the map relocates that marker instead of dropping a
+// hazard (guarded first in the click handler below).
+// ----------------------------------------------------------------------------
+function setPickingMode(mode) {
+  pickingMode = mode;
+  document.getElementById('setStartBtn').classList.toggle('active', mode === 'start');
+  document.getElementById('setEndBtn').classList.toggle('active', mode === 'end');
+  document.getElementById('map').style.cursor = mode ? 'crosshair' : '';
+
+  const banner = document.getElementById('pickingBanner');
+  if (mode === 'start') {
+    banner.textContent = 'Click the map to place the rescue base';
+    banner.className = 'picking-banner start';
+  } else if (mode === 'end') {
+    banner.textContent = 'Click the map to place the disaster site';
+    banner.className = 'picking-banner end';
+  } else {
+    banner.className = 'picking-banner hidden';
+  }
+}
+
+document.getElementById('setStartBtn').addEventListener('click', () => {
+  if (pickingMode === 'start') {
+    setPickingMode(null);
+    log('Selection cancelled.', 'info');
+  } else {
+    setPickingMode('start');
+    log('Click the map to place the rescue base.', 'info');
+  }
+});
+document.getElementById('setEndBtn').addEventListener('click', () => {
+  if (pickingMode === 'end') {
+    setPickingMode(null);
+    log('Selection cancelled.', 'info');
+  } else {
+    setPickingMode('end');
+    log('Click the map to place the disaster site.', 'info');
+  }
+});
+
+// Click-to-add hazard, OR click-to-place an endpoint marker while pick mode is armed
 map.on('click', (e) => {
   const gx = Math.round((e.latlng.lat - BASE_LAT) / SCALE);
   const gy = Math.round((e.latlng.lng - BASE_LNG) / SCALE);
-  const radius = parseInt(document.getElementById('hazardRadius').value, 10);
 
+  if (pickingMode === 'start' || pickingMode === 'end') {
+    const cgx = Math.max(0, Math.min(GRID_SIZE - 1, gx));
+    const cgy = Math.max(0, Math.min(GRID_SIZE - 1, gy));
+
+    if (pickingMode === 'start') {
+      startNode = [cgx, cgy];
+      startMarker.setLatLng(gridToLatLng(cgx, cgy));
+      log(`Rescue base moved to grid (${cgx}, ${cgy}).`, 'info');
+    } else {
+      endNode = [cgx, cgy];
+      endMarker.setLatLng(gridToLatLng(cgx, cgy));
+      log(`Disaster site moved to grid (${cgx}, ${cgy}).`, 'info');
+    }
+    setPickingMode(null);
+    return;
+  }
+
+  const radius = parseInt(document.getElementById('hazardRadius').value, 10);
   activeHazards.push({ grid_x: gx, grid_y: gy, radius });
   drawHazard(gx, gy, radius);
   log(`Hazard placed at grid (${gx}, ${gy}), size ${radius}. Recalculate route to see the effect.`, 'info');
@@ -271,7 +335,7 @@ async function calculateRoute() {
     const res = await fetch(`${API_BASE}/api/route`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ start: START_NODE, end: END_NODE, algorithm: selectedAlgo, custom_hazards: activeHazards }),
+      body: JSON.stringify({ start: startNode, end: endNode, algorithm: selectedAlgo, custom_hazards: activeHazards }),
     });
     const data = await res.json();
 
@@ -303,7 +367,7 @@ async function compareAll() {
     const res = await fetch(`${API_BASE}/api/compare-all`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ start: START_NODE, end: END_NODE, custom_hazards: activeHazards }),
+      body: JSON.stringify({ start: startNode, end: endNode, custom_hazards: activeHazards }),
     });
     const data = await res.json();
     if (data.status !== 'success') {
@@ -349,6 +413,12 @@ async function resetScenario() {
   document.getElementById('telemetryEmpty').classList.remove('hidden');
   document.getElementById('telemetrySingle').classList.add('hidden');
   document.getElementById('compareTableWrap').classList.add('hidden');
+
+  startNode = [...DEFAULT_START];
+  endNode = [...DEFAULT_END];
+  startMarker.setLatLng(gridToLatLng(...startNode));
+  endMarker.setLatLng(gridToLatLng(...endNode));
+  setPickingMode(null);
 
   try {
     await fetch(`${API_BASE}/api/reset`, { method: 'POST' });
