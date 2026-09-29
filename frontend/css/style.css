@@ -173,6 +173,32 @@ html, body {
 .algo-name { font-family: var(--font-head); font-size: 13px; font-weight: 600; }
 .algo-sub { font-size: 10.5px; color: var(--text-mute); }
 
+/* ---- Road network toggle (demo grid vs. real streets) ---- */
+.network-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.network-btn {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-main);
+  padding: 10px;
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.network-btn:hover { border-color: var(--accent-amber); }
+.network-btn.active {
+  background: linear-gradient(160deg, rgba(245,158,11,0.16), rgba(245,158,11,0.03));
+  border-color: var(--accent-amber);
+  color: var(--accent-amber);
+}
+
 /* ---- Buttons ---- */
 .btn {
   width: 100%;

@@ -18,6 +18,11 @@ Everything is intentionally recomputed on every /api/route call (grid graph +
 hazards) so the demo is stateless and easy to test with different inputs --
 except D* Lite's OWN internal path memory, which is deliberately kept across
 calls, because "remembering the last route" is the entire point of D* Lite.
+
+/api/route and /api/compare-all both accept an opt-in "network" field:
+"grid" (default) or "real" (a real OpenStreetMap road network -- see
+utils/graph_builder.build_real_road_graph). The frontend's "Road network"
+toggle switches between them.
 """
 
 import sys
@@ -36,7 +41,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import networkx as nx
 
-from utils.graph_builder import build_city_graph
+from utils.graph_builder import build_city_graph, build_real_road_graph
 from utils.hazard_mapper import apply_hazard_zones
 from utils.routing_helpers import find_safe_path, risk_cost, path_stats
 from algorithms.d_star_lite import DStarLite
@@ -107,17 +112,36 @@ def hash_password(password):
 # Small internal helpers
 # ---------------------------------------------------------------------------
 
-def build_scenario(custom_hazards):
-    """
-    Builds a fresh 15x15 road-network graph and paints the given hazard
-    zones onto it. custom_hazards is a list the FRONTEND sends -- clicks on
-    the map become circles here. An empty list means a totally clear map
-    (no hazards at all) -- that is a valid, real test case, not an error.
-    """
-    graph = build_city_graph(grid_size=GRID_SIZE)
+def build_scenario(custom_hazards, network='grid'):
+    if network == 'real':
+        graph = build_real_road_graph()
+    else:
+        graph = build_city_graph(grid_size=GRID_SIZE)
+
     if custom_hazards:
         graph = apply_hazard_zones(graph, custom_hazards)
     return graph
+
+
+def nearest_node(graph, lat, lng):
+    return min(graph.nodes(), key=lambda n: (graph.nodes[n]['lat'] - lat) ** 2 + (graph.nodes[n]['lng'] - lng) ** 2)
+
+
+def parse_endpoints(data, graph, network):
+    if network == 'real':
+        start = data.get('start')
+        end = data.get('end')
+        if isinstance(start, dict):
+            start = nearest_node(graph, start['lat'], start['lng'])
+        elif start is None:
+            start = nearest_node(graph, BASE_LAT - 0.010, BASE_LNG - 0.010)
+        if isinstance(end, dict):
+            end = nearest_node(graph, end['lat'], end['lng'])
+        elif end is None:
+            end = nearest_node(graph, BASE_LAT + 0.010, BASE_LNG + 0.010)
+        return start, end
+
+    return tuple(data.get('start', DEFAULT_START)), tuple(data.get('end', DEFAULT_END))
 
 
 def path_to_latlng(graph, path):
@@ -281,14 +305,17 @@ def get_hazards():
 @app.route('/api/route', methods=['POST'])
 def get_route():
     data = request.json or {}
-    start_node = tuple(data.get('start', DEFAULT_START))
-    end_node = tuple(data.get('end', DEFAULT_END))
+    network = data.get('network', 'grid')
     algo = data.get('algorithm', 'a_star')
     custom_hazards = data.get('custom_hazards', [])
 
-    graph = build_scenario(custom_hazards)
+    if network not in ('grid', 'real'):
+        return jsonify({"status": "error", "message": "network must be 'grid' or 'real'."}), 400
 
     try:
+        graph = build_scenario(custom_hazards, network=network)
+        start_node, end_node = parse_endpoints(data, graph, network)
+
         result = run_one_algorithm(algo, graph, start_node, end_node)
         if result["status"] == "no_path":
             return jsonify({
@@ -313,30 +340,37 @@ def compare_all():
     different algorithms, not the same code renamed three times.
     """
     data = request.json or {}
-    start_node = tuple(data.get('start', DEFAULT_START))
-    end_node = tuple(data.get('end', DEFAULT_END))
+    network = data.get('network', 'grid')
     custom_hazards = data.get('custom_hazards', [])
 
-    graph = build_scenario(custom_hazards)
+    if network not in ('grid', 'real'):
+        return jsonify({"status": "error", "message": "network must be 'grid' or 'real'."}), 400
 
-    results = {}
-    for algo in ['a_star', 'dijkstra', 'd_star']:
-        results[algo] = run_one_algorithm(algo, graph, start_node, end_node)
+    try:
+        graph = build_scenario(custom_hazards, network=network)
+        start_node, end_node = parse_endpoints(data, graph, network)
 
-    # NSGA-II contributes THREE routes (the Pareto front), not one
-    pareto = get_pareto_front(graph, start_node, end_node)
-    nsga_results = {}
-    for label, candidate in pareto.items():
-        nsga_results[label] = {
-            "algorithm": f"nsga2_{label}",
-            "status": "success",
-            "path": path_to_latlng(graph, candidate["path"]),
-            "distance_m": candidate["distance"],
-            "risk_score": candidate["risk"],
-        }
-    results["nsga2"] = nsga_results
+        results = {}
+        for algo in ['a_star', 'dijkstra', 'd_star']:
+            results[algo] = run_one_algorithm(algo, graph, start_node, end_node)
 
-    return jsonify({"status": "success", "results": results})
+        # NSGA-II contributes THREE routes (the Pareto front), not one
+        pareto = get_pareto_front(graph, start_node, end_node)
+        nsga_results = {}
+        for label, candidate in pareto.items():
+            nsga_results[label] = {
+                "algorithm": f"nsga2_{label}",
+                "status": "success",
+                "path": path_to_latlng(graph, candidate["path"]),
+                "distance_m": candidate["distance"],
+                "risk_score": candidate["risk"],
+            }
+        results["nsga2"] = nsga_results
+
+        return jsonify({"status": "success", "results": results})
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Comparison failed: {str(e)}"}), 400
 
 
 @app.route('/api/reset', methods=['POST'])

@@ -179,6 +179,15 @@
     <aside class="rail">
 
       <section class="rail-block">
+        <div class="rail-block-title">Road network</div>
+        <p class="hint">Grid is the fast synthetic demo network. Real streets uses actual OpenStreetMap roads (experimental) — switching clears hazards and resets endpoints.</p>
+        <div class="network-grid" id="networkGrid">
+          <button class="network-btn active" data-network="grid">Demo grid</button>
+          <button class="network-btn" data-network="real">Real streets</button>
+        </div>
+      </section>
+
+      <section class="rail-block">
         <div class="rail-block-title">Routing algorithm</div>
         <div class="algo-grid" id="algoGrid">
           <button class="algo-btn active" data-algo="d_star">

@@ -124,7 +124,7 @@ python tests/verify_spatial_hazard.py
 
 This checks `utils/graph_builder.py` and `utils/hazard_mapper.py` — grid structure, edge distances, hazard risk zones, and safe routing — and prints a PASS/FAIL line for each check.
 
-`utils/graph_builder.py` also has an experimental `build_real_road_graph()` : a real OpenStreetMap-based street network, not yet wired into the live app, kept as a drop-in-compatible alternative to the synthetic grid. Verify it with:
+`utils/graph_builder.py` also has an experimental `build_real_road_graph()` : a real OpenStreetMap-based street network, kept as a drop-in-compatible alternative to the synthetic grid. Verify it with:
 
 ```bash
 cd backend
@@ -133,6 +133,14 @@ python tests/verify_real_road_graph.py
 ```
 
 The first run fetches a small real street network via OSMnx and caches it to `backend/data/road_network.graphml`; later runs reuse that cache instead of hitting the network.
+
+The real network is an **opt-in** API option — pass `"network": "real"` in the body of `/api/route` or `/api/compare-all` (default is `"grid"`). Start/end for real mode accept either a raw OSM node id or a `{lat, lng}` point (resolved to the nearest real node); omit them to fall back to nearest-node defaults. Hazards use `{lat, lng, radius}` instead of `{grid_x, grid_y, radius}`. The frontend has a "Road network" toggle (**Demo grid** / **Real streets**, in the left rail) that switches into this mode — switching clears hazards and resets endpoints, since the two coordinate systems don't carry over. Verify the API layer with:
+
+```bash
+cd backend
+python tests/verify_real_network_api.py
+
+```
 
 ---
 
