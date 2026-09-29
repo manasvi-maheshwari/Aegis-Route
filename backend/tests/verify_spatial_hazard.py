@@ -5,9 +5,22 @@ import math
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from utils.graph_builder import build_city_graph
-from utils.hazard_mapper import apply_hazard_zones, CORE_RISK, DANGER_RISK, DANGER_BUFFER_MULT
+from utils.hazard_mapper import (
+    apply_hazard_zones, CORE_RISK, DANGER_RISK, DANGER_BUFFER_MULT, METERS_PER_RADIUS_UNIT,
+)
 
 BASE_LAT, BASE_LNG, SCALE = 12.9716, 79.1594, 0.005
+
+EARTH_RADIUS_M = 6371000.0
+
+
+def _ref_haversine_m(lat1, lng1, lat2, lng2):
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * EARTH_RADIUS_M * math.asin(math.sqrt(a))
+
 
 failures = []
 
@@ -39,7 +52,13 @@ check("edge length is deterministic across rebuilds (seeded, not random)", d1 ==
 check("no risk/blocked state before hazards applied",
       all(d['risk'] == 0.0 and d['blocked'] is False for _, _, d in G.edges(data=True)))
 
-# 2. Hazard core ring -> impassable
+# 2. Haversine sanity check against a known real-world distance:
+# 1 degree of latitude is ~111.19 km everywhere on Earth.
+one_deg_lat_m = _ref_haversine_m(0.0, 0.0, 1.0, 0.0)
+check("haversine(1 degree of latitude) is close to the known ~111.19km constant",
+      math.isclose(one_deg_lat_m, 111_195, rel_tol=0.01))
+
+# 3. Hazard core ring -> impassable
 G2 = build_city_graph(15)
 hazard = {"grid_x": 7, "grid_y": 7, "radius": 2}
 G2 = apply_hazard_zones(G2, [hazard])
@@ -51,17 +70,17 @@ core_edges = list(G2.edges(center, data=True))
 check("all edges touching core node are blocked with CORE_RISK",
       all(d['blocked'] is True and d['risk'] == CORE_RISK for _, _, d in core_edges))
 
-# 3. Danger buffer ring -> risky but passable
-core_radius_deg = hazard['radius'] * SCALE
-danger_radius_deg = core_radius_deg * DANGER_BUFFER_MULT
+# 4. Danger buffer ring -> risky but passable
+core_radius_m = hazard['radius'] * METERS_PER_RADIUS_UNIT
+danger_radius_m = core_radius_m * DANGER_BUFFER_MULT
 
 buffer_node = None
 for node in G2.nodes():
     n_lat, n_lng = G2.nodes[node]['lat'], G2.nodes[node]['lng']
     h_lat = BASE_LAT + hazard['grid_x'] * SCALE
     h_lng = BASE_LNG + hazard['grid_y'] * SCALE
-    dist = math.sqrt((n_lat - h_lat) ** 2 + (n_lng - h_lng) ** 2)
-    if core_radius_deg < dist <= danger_radius_deg:
+    dist_m = _ref_haversine_m(n_lat, n_lng, h_lat, h_lng)
+    if core_radius_m < dist_m <= danger_radius_m:
         buffer_node = node
         break
 
@@ -75,7 +94,7 @@ if buffer_node:
     check("buffer-ring edges get DANGER_RISK cost (or more, from overlap)",
           all(d['risk'] >= DANGER_RISK for d in buffer_edges))
 
-# 4. Overlap handling: a second, weaker hazard must not downgrade a core node
+# 5. Overlap handling: a second, weaker hazard must not downgrade a core node
 G3 = build_city_graph(15)
 G3 = apply_hazard_zones(G3, [
     {"grid_x": 7, "grid_y": 7, "radius": 2},   # strong hazard -> core at (7,7)
@@ -84,7 +103,7 @@ G3 = apply_hazard_zones(G3, [
 check("node (7,7) stays at CORE_RISK after an overlapping weaker hazard",
       G3.nodes[(7, 7)]['risk_score'] == CORE_RISK)
 
-# 5. get_safe_subgraph actually removes blocked edges (not just penalizes)
+# 6. get_safe_subgraph actually removes blocked edges (not just penalizes)
 from utils.routing_helpers import get_safe_subgraph, risk_cost, find_safe_path, path_stats
 
 safe = get_safe_subgraph(G2)

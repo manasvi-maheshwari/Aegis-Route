@@ -28,6 +28,18 @@ CORE_RISK = 10000.0     # cost added to roads inside the impassable core
 DANGER_RISK = 350.0     # cost added to roads inside the risky-but-passable ring
 DANGER_BUFFER_MULT = 1.8  # danger ring extends this many times past the core radius
 
+METERS_PER_RADIUS_UNIT = 500.0
+
+EARTH_RADIUS_M = 6371000.0
+
+
+def _haversine_m(lat1, lng1, lat2, lng2):
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * EARTH_RADIUS_M * math.asin(math.sqrt(a))
+
 
 def apply_hazard_zones(G, hazard_zones):
     """
@@ -45,22 +57,22 @@ def apply_hazard_zones(G, hazard_zones):
             h_lat = base_lat + (zone['grid_x'] * scale)
             h_lng = base_lng + (zone['grid_y'] * scale)
 
-        core_radius_deg = zone.get('radius', 2) * scale
-        danger_radius_deg = core_radius_deg * DANGER_BUFFER_MULT
+        core_radius_m = zone.get('radius', 2) * METERS_PER_RADIUS_UNIT
+        danger_radius_m = core_radius_m * DANGER_BUFFER_MULT
 
         for node in G.nodes():
             n_lat = G.nodes[node]['lat']
             n_lng = G.nodes[node]['lng']
-            dist = math.sqrt((n_lat - h_lat) ** 2 + (n_lng - h_lng) ** 2)
+            dist_m = _haversine_m(n_lat, n_lng, h_lat, h_lng)
 
-            if dist <= core_radius_deg:
+            if dist_m <= core_radius_m:
                 # Inside the core -> completely impassable
                 G.nodes[node]['risk_score'] = CORE_RISK
                 for neighbor in G.neighbors(node):
                     G[node][neighbor]['risk'] = CORE_RISK
                     G[node][neighbor]['blocked'] = True
 
-            elif dist <= danger_radius_deg:
+            elif dist_m <= danger_radius_m:
                 # Inside the wider danger ring -> risky, but still usable.
                 # Only raise risk if this road isn't already marked worse
                 # by an overlapping hazard's core.
