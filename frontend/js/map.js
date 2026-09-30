@@ -3,30 +3,32 @@
    ----------------------------------------------------------------------------
    What this file does, in plain terms:
      1. Draws the Leaflet map and the user-selectable start/end markers.
-     2. Lets the user click the map to drop a hazard zone (sends grid
-        coordinates in demo-grid mode, or real lat/lng in real-street mode,
-        to the backend, draws two circles -- a solid "core" circle that is
-        impassable, and a dashed "danger ring" that is risky but still
-        usable -- matching exactly how the backend treats it).
+     2. Lets the user click the map to drop a hazard zone (sends real
+        lat/lng to the backend, draws two circles -- a solid "core" circle
+        that is impassable, and a dashed "danger ring" that is risky but
+        still usable -- matching exactly how the backend treats it).
      3. Calls the Flask backend (/api/route or /api/compare-all) and draws
         the resulting route(s) as coloured lines on the map.
      4. Fills in the right-hand "telemetry" panel with distance/risk/time
         numbers so the results aren't just visual -- they're measurable.
+
+   Routing runs on the real OpenStreetMap road network (see
+   backend/utils/graph_builder.build_real_road_graph) -- there is no
+   synthetic demo grid here anymore.
 
    API_BASE points at the Flask server. Change this one line if you deploy
    the backend somewhere other than localhost.
    ============================================================================ */
 
 
-// Grid <-> real-world coordinate conversion. MUST match backend/utils/graph_builder.py
+// Center of the real road network the backend builds. MUST match
+// backend/app.py's BASE_LAT/BASE_LNG.
 const BASE_LAT = 12.9716;
 const BASE_LNG = 79.1594;
-const SCALE = 0.005;
-const GRID_SIZE = 15;
-const DEFAULT_START = [0, 0];
-const DEFAULT_END = [14, 14];
-let startNode = [...DEFAULT_START];
-let endNode = [...DEFAULT_END];
+const MAP_VIEW = { center: [BASE_LAT, BASE_LNG], zoom: 14 };
+
+let startNode = null;   // null, or {lat, lng} once picked / resolved from a calculated route
+let endNode = null;
 
 // Colours per algorithm, used consistently across single-run and compare-all
 const ALGO_COLORS = {
@@ -49,40 +51,31 @@ const ALGO_EXPLAINERS = {
 // ----------------------------------------------------------------------------
 // Map setup
 // ----------------------------------------------------------------------------
-// Two very different scales: the demo grid spans ~8km, but the real road
-// network (build_real_road_graph's default radius_m) only covers ~1.2km
-// around the same center -- each mode needs its own view so hazard/endpoint
-// clicks actually land within that mode's coverage area.
-const GRID_VIEW = { center: [BASE_LAT + 0.035, BASE_LNG + 0.035], zoom: 13 };
-const REAL_VIEW = { center: [BASE_LAT, BASE_LNG], zoom: 16 };
-
-const map = L.map('map', { zoomControl: true }).setView(GRID_VIEW.center, GRID_VIEW.zoom);
+const map = L.map('map', { zoomControl: true }).setView(MAP_VIEW.center, MAP_VIEW.zoom);
 
 // Dark basemap so it matches the command-center theme
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 
-function gridToLatLng(gx, gy) {
-  return [BASE_LAT + gx * SCALE, BASE_LNG + gy * SCALE];
-}
-
-// Start (rescue base) and end (disaster site) markers
-// pick mode below, defaulting to the corners of the demo grid.
+// Start (rescue base) and end (disaster site) markers. Not added to the map
+// until a real position is known (a pick, or a calculated route's resolved
+// endpoints) -- an invisible marker left in the DOM still swallows clicks
+// meant for the map underneath, so "not yet placed" means fully removed,
+// not just hidden.
 const startIcon = L.divIcon({ className: '', html: '<div style="background:#22C55E;width:14px;height:14px;border-radius:50%;border:2px solid #0E1626;box-shadow:0 0 8px #22C55E;"></div>' });
 const endIcon = L.divIcon({ className: '', html: '<div style="background:#EF4444;width:14px;height:14px;border-radius:2px;border:2px solid #0E1626;box-shadow:0 0 8px #EF4444;"></div>' });
-const startMarker = L.marker(gridToLatLng(...startNode), { icon: startIcon }).addTo(map).bindTooltip('Rescue base', { direction: 'top' });
-const endMarker = L.marker(gridToLatLng(...endNode), { icon: endIcon }).addTo(map).bindTooltip('Disaster site', { direction: 'top' });
+const startMarker = L.marker(MAP_VIEW.center, { icon: startIcon }).bindTooltip('Rescue base', { direction: 'top' });
+const endMarker = L.marker(MAP_VIEW.center, { icon: endIcon }).bindTooltip('Disaster site', { direction: 'top' });
 
 // ----------------------------------------------------------------------------
 // State
 // ----------------------------------------------------------------------------
-let activeHazards = [];     // what we send to the backend: [{grid_x, grid_y, radius}, ...]
+let activeHazards = [];     // what we send to the backend: [{lat, lng, radius}, ...]
 let hazardLayers = [];      // Leaflet circle layers currently drawn
 let routeLayers = [];       // Leaflet polyline layers currently drawn
 let selectedAlgo = 'd_star';
 let pickingMode = null;     // null | 'start' | 'end' -- which marker the next map click will move
-let networkMode = 'grid';   // 'grid' (synthetic demo) | 'real' (real OpenStreetMap roads, experimental)
 
 // ----------------------------------------------------------------------------
 // Status log (left rail) -- small helper so every action leaves a trace,
@@ -135,8 +128,8 @@ setInterval(checkBackend, 8000);
 // ----------------------------------------------------------------------------
 const DANGER_BUFFER_MULT = 1.8;
 
-function drawHazard(center, radiusGridUnits) {
-  const coreRadiusM = radiusGridUnits * 500;
+function drawHazard(center, radiusUnits) {
+  const coreRadiusM = radiusUnits * 500;
   const dangerRadiusM = coreRadiusM * DANGER_BUFFER_MULT;
 
   const core = L.circle(center, {
@@ -160,60 +153,11 @@ function drawHazard(center, radiusGridUnits) {
   setTimeout(() => pulse.remove(), 650);
 }
 
-function hazardCenter(h) {
-  return ('lat' in h) ? [h.lat, h.lng] : gridToLatLng(h.grid_x, h.grid_y);
-}
-
 function redrawAllHazards() {
   hazardLayers.forEach(l => map.removeLayer(l));
   hazardLayers = [];
-  activeHazards.forEach(h => drawHazard(hazardCenter(h), h.radius));
+  activeHazards.forEach(h => drawHazard([h.lat, h.lng], h.radius));
 }
-
-// ----------------------------------------------------------------------------
-// Road network toggle -- demo grid vs. real OpenStreetMap streets. The two
-// coordinate systems are incompatible, so switching always clears hazards
-// and resets endpoints rather than trying to translate them across.
-// ----------------------------------------------------------------------------
-function switchNetworkMode(mode) {
-  if (mode === networkMode) return;
-  networkMode = mode;
-
-  document.querySelectorAll('.network-btn').forEach(b => b.classList.toggle('active', b.dataset.network === mode));
-
-  activeHazards = [];
-  redrawAllHazards();
-  clearRoutes();
-  document.getElementById('telemetryEmpty').classList.remove('hidden');
-  document.getElementById('telemetrySingle').classList.add('hidden');
-  document.getElementById('compareTableWrap').classList.add('hidden');
-  setPickingMode(null);
-
-  if (mode === 'grid') {
-    startNode = [...DEFAULT_START];
-    endNode = [...DEFAULT_END];
-    startMarker.setLatLng(gridToLatLng(...startNode)).addTo(map);
-    endMarker.setLatLng(gridToLatLng(...endNode)).addTo(map);
-    map.setView(GRID_VIEW.center, GRID_VIEW.zoom);
-    loadDefaultHazard();
-    log('Switched to demo grid network.', 'info');
-  } else {
-    startNode = null;
-    endNode = null;
-    // Fully removed (not just made invisible) until a pick or a calculated
-    // route gives a real position -- an opacity-0 marker still sits in the
-    // DOM and silently swallows clicks meant for the map underneath
-    // (Leaflet markers don't let mouse events bubble through them).
-    map.removeLayer(startMarker);
-    map.removeLayer(endMarker);
-    map.setView(REAL_VIEW.center, REAL_VIEW.zoom);
-    log('Switched to real street network (experimental). Click the map to add hazards, or set custom endpoints -- sensible defaults are used otherwise.', 'info');
-  }
-}
-
-document.querySelectorAll('.network-btn').forEach(btn => {
-  btn.addEventListener('click', () => switchNetworkMode(btn.dataset.network));
-});
 
 // Load the backend's default demo hazard on first page load
 async function loadDefaultHazard() {
@@ -221,7 +165,7 @@ async function loadDefaultHazard() {
     const res = await fetch(`${API_BASE}/api/hazards`);
     const hazards = await res.json();
     hazards.forEach(h => {
-      activeHazards.push({ grid_x: h.grid_x, grid_y: h.grid_y, radius: h.radius });
+      activeHazards.push({ lat: h.lat, lng: h.lng, radius: h.radius });
     });
     redrawAllHazards();
     log('Loaded default hazard scenario from backend.', 'info');
@@ -272,53 +216,30 @@ document.getElementById('setEndBtn').addEventListener('click', () => {
   }
 });
 
-// Click-to-add hazard, OR click-to-place an endpoint marker while pick mode is armed.
-// Behavior branches on networkMode: the demo grid works in grid_x/grid_y
-// coordinates (clamped to the grid bounds); real-street mode works in raw
-// lat/lng, resolved to the nearest real road node server-side.
+// Click-to-add hazard, OR click-to-place an endpoint marker while pick mode
+// is armed. Both send real lat/lng -- the backend resolves it to the
+// nearest real road node.
 map.on('click', (e) => {
   if (pickingMode === 'start' || pickingMode === 'end') {
-    if (networkMode === 'real') {
-      const point = { lat: e.latlng.lat, lng: e.latlng.lng };
-      if (pickingMode === 'start') {
-        startNode = point;
-        startMarker.setLatLng(e.latlng).addTo(map);
-        log(`Rescue base moved near (${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}).`, 'info');
-      } else {
-        endNode = point;
-        endMarker.setLatLng(e.latlng).addTo(map);
-        log(`Disaster site moved near (${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}).`, 'info');
-      }
+    const point = { lat: e.latlng.lat, lng: e.latlng.lng };
+    if (pickingMode === 'start') {
+      startNode = point;
+      startMarker.setLatLng(e.latlng).addTo(map);
+      log(`Rescue base set near (${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}) -- will snap to the nearest real road once a route is calculated.`, 'info');
     } else {
-      const gx = Math.max(0, Math.min(GRID_SIZE - 1, Math.round((e.latlng.lat - BASE_LAT) / SCALE)));
-      const gy = Math.max(0, Math.min(GRID_SIZE - 1, Math.round((e.latlng.lng - BASE_LNG) / SCALE)));
-      if (pickingMode === 'start') {
-        startNode = [gx, gy];
-        startMarker.setLatLng(gridToLatLng(gx, gy));
-        log(`Rescue base moved to grid (${gx}, ${gy}).`, 'info');
-      } else {
-        endNode = [gx, gy];
-        endMarker.setLatLng(gridToLatLng(gx, gy));
-        log(`Disaster site moved to grid (${gx}, ${gy}).`, 'info');
-      }
+      endNode = point;
+      endMarker.setLatLng(e.latlng).addTo(map);
+      log(`Disaster site set near (${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}) -- will snap to the nearest real road once a route is calculated.`, 'info');
     }
     setPickingMode(null);
     return;
   }
 
   const radius = parseInt(document.getElementById('hazardRadius').value, 10);
-  if (networkMode === 'real') {
-    const hz = { lat: e.latlng.lat, lng: e.latlng.lng, radius };
-    activeHazards.push(hz);
-    drawHazard([hz.lat, hz.lng], radius);
-    log(`Hazard placed near (${hz.lat.toFixed(4)}, ${hz.lng.toFixed(4)}), size ${radius}. Recalculate route to see the effect.`, 'info');
-  } else {
-    const gx = Math.round((e.latlng.lat - BASE_LAT) / SCALE);
-    const gy = Math.round((e.latlng.lng - BASE_LNG) / SCALE);
-    activeHazards.push({ grid_x: gx, grid_y: gy, radius });
-    drawHazard(gridToLatLng(gx, gy), radius);
-    log(`Hazard placed at grid (${gx}, ${gy}), size ${radius}. Recalculate route to see the effect.`, 'info');
-  }
+  const hz = { lat: e.latlng.lat, lng: e.latlng.lng, radius };
+  activeHazards.push(hz);
+  drawHazard([hz.lat, hz.lng], radius);
+  log(`Hazard placed near (${hz.lat.toFixed(4)}, ${hz.lng.toFixed(4)}), size ${radius}. Recalculate route to see the effect.`, 'info');
 });
 
 document.getElementById('hazardRadius').addEventListener('input', (e) => {
@@ -345,13 +266,12 @@ function fitAllRoutes() {
   map.fitBounds(group.getBounds(), { padding: [40, 40] });
 }
 
-// In real-street mode, start/end are resolved to the nearest real road node
-// server-side, which may not be exactly where the user clicked -- a
-// successful route's first/last points ARE that resolved position, so snap
-// the markers there for an accurate picture. No-op in grid mode, where the
-// markers are already exactly where they were placed.
+// Start/end are resolved to the nearest real road node server-side, which
+// may not be exactly where the user clicked -- a successful route's
+// first/last points ARE that resolved position, so snap the markers there
+// for an accurate picture.
 function snapEndpointMarkersToPath(path) {
-  if (networkMode !== 'real' || !path || path.length < 2) return;
+  if (!path || path.length < 2) return;
   startMarker.setLatLng(path[0]).addTo(map);
   endMarker.setLatLng(path[path.length - 1]).addTo(map);
 }
@@ -413,19 +333,13 @@ function showCompareTable(rows) {
   });
 }
 
-// Shared request body for both endpoints below. In real-street mode,
-// start/end are omitted entirely when not yet chosen, letting the backend
-// fall back to sensible nearest-node defaults; grid mode always sends them
-// explicitly, exactly as before.
+// Shared request body for both endpoints below. start/end are omitted
+// entirely when not yet chosen, letting the backend fall back to sensible
+// nearest-node defaults.
 function scenarioRequestBody() {
-  const body = { network: networkMode, custom_hazards: activeHazards };
-  if (networkMode === 'real') {
-    if (startNode) body.start = startNode;
-    if (endNode) body.end = endNode;
-  } else {
-    body.start = startNode;
-    body.end = endNode;
-  }
+  const body = { custom_hazards: activeHazards };
+  if (startNode) body.start = startNode;
+  if (endNode) body.end = endNode;
   return body;
 }
 
@@ -524,17 +438,10 @@ async function resetScenario() {
   document.getElementById('telemetrySingle').classList.add('hidden');
   document.getElementById('compareTableWrap').classList.add('hidden');
 
-  if (networkMode === 'grid') {
-    startNode = [...DEFAULT_START];
-    endNode = [...DEFAULT_END];
-    startMarker.setLatLng(gridToLatLng(...startNode)).addTo(map);
-    endMarker.setLatLng(gridToLatLng(...endNode)).addTo(map);
-  } else {
-    startNode = null;
-    endNode = null;
-    map.removeLayer(startMarker);
-    map.removeLayer(endMarker);
-  }
+  startNode = null;
+  endNode = null;
+  map.removeLayer(startMarker);
+  map.removeLayer(endMarker);
   setPickingMode(null);
 
   try {

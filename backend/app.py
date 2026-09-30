@@ -14,15 +14,13 @@ Endpoints:
     POST /api/signup       -> register new user into SQLite database
     POST /api/login        -> verify credentials and authenticate user
 
-Everything is intentionally recomputed on every /api/route call (grid graph +
+Everything is intentionally recomputed on every /api/route call (road graph +
 hazards) so the demo is stateless and easy to test with different inputs --
 except D* Lite's OWN internal path memory, which is deliberately kept across
 calls, because "remembering the last route" is the entire point of D* Lite.
 
-/api/route and /api/compare-all both accept an opt-in "network" field:
-"grid" (default) or "real" (a real OpenStreetMap road network -- see
-utils/graph_builder.build_real_road_graph). The frontend's "Road network"
-toggle switches between them.
+Routing always runs on the real OpenStreetMap road network (see
+utils/graph_builder.build_real_road_graph).
 """
 
 import sys
@@ -41,7 +39,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import networkx as nx
 
-from utils.graph_builder import build_city_graph, build_real_road_graph
+from utils.graph_builder import build_real_road_graph
 from utils.hazard_mapper import apply_hazard_zones
 from utils.routing_helpers import find_safe_path, risk_cost, path_stats
 from algorithms.d_star_lite import DStarLite
@@ -50,12 +48,7 @@ from algorithms.nsga2_router import run_nsga2_route, get_pareto_front
 app = Flask(__name__)
 CORS(app)
 
-GRID_SIZE = 15
 BASE_LAT, BASE_LNG = 12.9716, 79.1594
-SCALE = 0.005
-
-DEFAULT_START = [0, 0]
-DEFAULT_END = [14, 14]
 
 
 # ---------------------------------------------------------------------------
@@ -112,12 +105,8 @@ def hash_password(password):
 # Small internal helpers
 # ---------------------------------------------------------------------------
 
-def build_scenario(custom_hazards, network='grid'):
-    if network == 'real':
-        graph = build_real_road_graph()
-    else:
-        graph = build_city_graph(grid_size=GRID_SIZE)
-
+def build_scenario(custom_hazards):
+    graph = build_real_road_graph()
     if custom_hazards:
         graph = apply_hazard_zones(graph, custom_hazards)
     return graph
@@ -127,21 +116,18 @@ def nearest_node(graph, lat, lng):
     return min(graph.nodes(), key=lambda n: (graph.nodes[n]['lat'] - lat) ** 2 + (graph.nodes[n]['lng'] - lng) ** 2)
 
 
-def parse_endpoints(data, graph, network):
-    if network == 'real':
-        start = data.get('start')
-        end = data.get('end')
-        if isinstance(start, dict):
-            start = nearest_node(graph, start['lat'], start['lng'])
-        elif start is None:
-            start = nearest_node(graph, BASE_LAT - 0.010, BASE_LNG - 0.010)
-        if isinstance(end, dict):
-            end = nearest_node(graph, end['lat'], end['lng'])
-        elif end is None:
-            end = nearest_node(graph, BASE_LAT + 0.010, BASE_LNG + 0.010)
-        return start, end
-
-    return tuple(data.get('start', DEFAULT_START)), tuple(data.get('end', DEFAULT_END))
+def parse_endpoints(data, graph):
+    start = data.get('start')
+    end = data.get('end')
+    if isinstance(start, dict):
+        start = nearest_node(graph, start['lat'], start['lng'])
+    elif start is None:
+        start = nearest_node(graph, BASE_LAT - 0.020, BASE_LNG - 0.020)
+    if isinstance(end, dict):
+        end = nearest_node(graph, end['lat'], end['lng'])
+    elif end is None:
+        end = nearest_node(graph, BASE_LAT + 0.020, BASE_LNG + 0.020)
+    return start, end
 
 
 def path_to_latlng(graph, path):
@@ -288,15 +274,13 @@ def login():
 @app.route('/api/hazards', methods=['GET'])
 def get_hazards():
     """Default demo hazard (used only for the initial page load preview)."""
-    default_hazards = [{"grid_x": 7, "grid_y": 7, "radius": 4}]
+    default_hazards = [{"lat": BASE_LAT, "lng": BASE_LNG, "radius": 3}]
     hazards_data = []
     for h in default_hazards:
         hazards_data.append({
-            "lat": BASE_LAT + (h['grid_x'] * SCALE),
-            "lng": BASE_LNG + (h['grid_y'] * SCALE),
+            "lat": h['lat'],
+            "lng": h['lng'],
             "radius_meters": h['radius'] * 500,
-            "grid_x": h['grid_x'],
-            "grid_y": h['grid_y'],
             "radius": h['radius'],
         })
     return jsonify(hazards_data)
@@ -305,16 +289,12 @@ def get_hazards():
 @app.route('/api/route', methods=['POST'])
 def get_route():
     data = request.json or {}
-    network = data.get('network', 'grid')
     algo = data.get('algorithm', 'a_star')
     custom_hazards = data.get('custom_hazards', [])
 
-    if network not in ('grid', 'real'):
-        return jsonify({"status": "error", "message": "network must be 'grid' or 'real'."}), 400
-
     try:
-        graph = build_scenario(custom_hazards, network=network)
-        start_node, end_node = parse_endpoints(data, graph, network)
+        graph = build_scenario(custom_hazards)
+        start_node, end_node = parse_endpoints(data, graph)
 
         result = run_one_algorithm(algo, graph, start_node, end_node)
         if result["status"] == "no_path":
@@ -331,24 +311,12 @@ def get_route():
 
 @app.route('/api/compare-all', methods=['POST'])
 def compare_all():
-    """
-    Runs every algorithm on the EXACT same scenario (same graph, same
-    hazards, same start/end) so their results are directly comparable.
-    This single call is what powers the "Compare All" button that overlays
-    every route on the map together with a stats table -- the strongest
-    single piece of evidence in the demo that these are genuinely
-    different algorithms, not the same code renamed three times.
-    """
     data = request.json or {}
-    network = data.get('network', 'grid')
     custom_hazards = data.get('custom_hazards', [])
 
-    if network not in ('grid', 'real'):
-        return jsonify({"status": "error", "message": "network must be 'grid' or 'real'."}), 400
-
     try:
-        graph = build_scenario(custom_hazards, network=network)
-        start_node, end_node = parse_endpoints(data, graph, network)
+        graph = build_scenario(custom_hazards)
+        start_node, end_node = parse_endpoints(data, graph)
 
         results = {}
         for algo in ['a_star', 'dijkstra', 'd_star']:
