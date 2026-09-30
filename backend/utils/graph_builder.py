@@ -40,9 +40,9 @@ def _seeded_length(u, v, low=350.0, high=650.0):
 
 def build_city_graph(grid_size=15):
     """
-    Builds a grid network representing city streets and intersections, and
-    maps every intersection to a real-looking latitude/longitude so it can
-    be drawn straight onto a Leaflet map.
+    Builds a synthetic grid network representing city streets and
+    intersections, and maps every intersection to a real-looking
+    latitude/longitude so it can be drawn straight onto a Leaflet map.
     """
     G = nx.grid_2d_graph(grid_size, grid_size)
 
@@ -63,7 +63,7 @@ def build_city_graph(grid_size=15):
     return G
 
 
-def build_real_road_graph(center=(BASE_LAT, BASE_LNG), radius_m=1200, cache_path=REAL_GRAPH_CACHE_PATH):
+def build_real_road_graph(center=(BASE_LAT, BASE_LNG), radius_m=5000, cache_path=REAL_GRAPH_CACHE_PATH):
     try:
         import osmnx as ox
     except ImportError as e:

@@ -179,15 +179,6 @@
     <aside class="rail">
 
       <section class="rail-block">
-        <div class="rail-block-title">Road network</div>
-        <p class="hint">Grid is the fast synthetic demo network. Real streets uses actual OpenStreetMap roads (experimental) — switching clears hazards and resets endpoints.</p>
-        <div class="network-grid" id="networkGrid">
-          <button class="network-btn active" data-network="grid">Demo grid</button>
-          <button class="network-btn" data-network="real">Real streets</button>
-        </div>
-      </section>
-
-      <section class="rail-block">
         <div class="rail-block-title">Routing algorithm</div>
         <div class="algo-grid" id="algoGrid">
           <button class="algo-btn active" data-algo="d_star">
@@ -211,7 +202,7 @@
 
       <section class="rail-block">
         <div class="rail-block-title">Route endpoints</div>
-        <p class="hint">Click a button, then click the map to place it. Left unset, the demo's default rescue base and disaster site are used.</p>
+        <p class="hint">Click a button, then click the map to place it — it snaps to the nearest real road once you calculate a route. Left unset, sensible defaults are used.</p>
         <div class="endpoint-grid">
           <button class="btn-endpoint btn-endpoint-start" id="setStartBtn">Set rescue base</button>
           <button class="btn-endpoint btn-endpoint-end" id="setEndBtn">Set disaster site</button>

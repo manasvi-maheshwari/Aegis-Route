@@ -20,7 +20,7 @@ def check(label, cond):
 print("Fetching/loading real road network (uses cache if present)...")
 G = build_real_road_graph()
 
-check("graph has a reasonable number of nodes", 50 <= G.number_of_nodes() <= 5000)
+check("graph has a reasonable number of nodes", 50 <= G.number_of_nodes() <= 20000)
 check("graph has at least as many edges as nodes (not a bunch of isolated points)",
       G.number_of_edges() >= G.number_of_nodes())
 check("graph is a plain undirected nx.Graph (not Multi/Directed)", type(G) is nx.Graph)
