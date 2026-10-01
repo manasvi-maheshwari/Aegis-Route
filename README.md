@@ -40,14 +40,18 @@ Aegis-Route/
 
 ### Installation
 
-Clone the repository and install the backend dependencies:
+Clone the repository, create a virtual environment, and install the backend dependencies into it:
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/Aegis-Route.git
 cd Aegis-Route/backend
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 
 ```
+
+> **Use a virtual environment, not your system/conda Python.** A dependency like `osmnx` (used for the real road network) only exists inside `.venv` once installed there — running `python app.py` from a different environment (e.g. a `(base)` conda shell) will fail with an import error even though installation "succeeded" earlier in some other environment.
 
 > **Note:** The application uses in-memory graph models and lightweight local state. No external databases or API keys are required.
 
@@ -57,9 +61,10 @@ pip install -r requirements.txt
 
 ### Step 1: Start the Backend Server
 
-Launch the Flask API from the `backend` directory:
+Launch the Flask API from the `backend` directory, with the virtual environment active (your prompt should show `(.venv)` — if it doesn't, run `source .venv/bin/activate` first):
 
 ```bash
+source .venv/bin/activate
 python app.py
 
 ```
@@ -99,6 +104,7 @@ To run performance tests and generate benchmark figures:
 
 ```bash
 cd backend
+source .venv/bin/activate
 python benchmarks/runner.py
 
 ```
@@ -118,6 +124,7 @@ The live app routes on a **real OpenStreetMap road network** (~5km radius around
 
 ```bash
 cd backend
+source .venv/bin/activate
 python tests/verify_real_road_graph.py
 
 ```
@@ -126,6 +133,7 @@ Hazards and start/end points are real `{lat, lng}` coordinates — click anywher
 
 ```bash
 cd backend
+source .venv/bin/activate
 python tests/verify_real_network_api.py
 
 ```
@@ -134,6 +142,7 @@ python tests/verify_real_network_api.py
 
 ```bash
 cd backend
+source .venv/bin/activate
 python tests/verify_spatial_hazard.py
 
 ```
