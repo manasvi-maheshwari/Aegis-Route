@@ -19,13 +19,15 @@ hazards) so the demo is stateless and easy to test with different inputs --
 except D* Lite's OWN internal path memory, which is deliberately kept across
 calls, because "remembering the last route" is the entire point of D* Lite.
 
-Routing always runs on the real OpenStreetMap road network (see
-utils/graph_builder.build_real_road_graph).
+Routing always runs on a real road network extracted from a local OSM data
+file (see utils/graph_builder.build_real_road_graph) -- not a live API call,
+so it stays fast and doesn't depend on a shared third-party service.
 """
 
 import sys
 import os
 import time
+import math
 import sqlite3
 import hashlib
 import random
@@ -39,7 +41,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import networkx as nx
 
-from utils.graph_builder import build_real_road_graph
+from utils.graph_builder import build_real_road_graph, build_graph_for_route
 from utils.hazard_mapper import apply_hazard_zones
 from utils.routing_helpers import find_safe_path, risk_cost, path_stats
 from algorithms.d_star_lite import DStarLite
@@ -48,7 +50,7 @@ from algorithms.nsga2_router import run_nsga2_route, get_pareto_front
 app = Flask(__name__)
 CORS(app)
 
-BASE_LAT, BASE_LNG = 12.9716, 79.1594
+BASE_LAT, BASE_LNG = 23.2599, 77.4126  # Bhopal, India
 
 
 # ---------------------------------------------------------------------------
@@ -116,18 +118,81 @@ def nearest_node(graph, lat, lng):
     return min(graph.nodes(), key=lambda n: (graph.nodes[n]['lat'] - lat) ** 2 + (graph.nodes[n]['lng'] - lng) ** 2)
 
 
+MAX_ENDPOINT_DISTANCE_M = 6000
+
+
+def _haversine_m(lat1, lng1, lat2, lng2):
+    R = 6371000.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def resolve_point(graph, lat, lng):
+    """
+    Resolves a {lat, lng} click to the nearest real road node. Raises
+    ValueError if the point is far outside the network's actual coverage.
+    Without this check, nearest_node() silently returns some arbitrarily
+    distant edge node instead of failing -- which is how two points both
+    placed far from Bhopal could snap to the exact same node, producing a
+    confusing zero-length "route" instead of a clear error.
+    """
+    node = nearest_node(graph, lat, lng)
+    dist = _haversine_m(lat, lng, graph.nodes[node]['lat'], graph.nodes[node]['lng'])
+    if dist > MAX_ENDPOINT_DISTANCE_M:
+        raise ValueError(
+            f"({lat:.4f}, {lng:.4f}) is {dist / 1000:.1f}km from the nearest road -- "
+            f"that's outside the app's covered area around Bhopal."
+        )
+    return node
+
+
 def parse_endpoints(data, graph):
     start = data.get('start')
     end = data.get('end')
     if isinstance(start, dict):
-        start = nearest_node(graph, start['lat'], start['lng'])
+        start = resolve_point(graph, start['lat'], start['lng'])
     elif start is None:
         start = nearest_node(graph, BASE_LAT - 0.020, BASE_LNG - 0.020)
     if isinstance(end, dict):
-        end = nearest_node(graph, end['lat'], end['lng'])
+        end = resolve_point(graph, end['lat'], end['lng'])
     elif end is None:
         end = nearest_node(graph, BASE_LAT + 0.020, BASE_LNG + 0.020)
     return start, end
+
+
+def build_scenario_and_endpoints(data):
+    """
+    Builds the graph and resolves start/end together -- unlike the fixed
+    default network, a graph built dynamically around two arbitrary
+    real-world points can't be built until both points are known.
+
+    When both start and end are given as {lat, lng} points (a map click
+    anywhere in the world), fetches a real road network sized and centered
+    around them (see build_graph_for_route) -- this is what lets the app
+    route anywhere, not just around the one fixed demo location.
+
+    Otherwise (nothing given, a raw node id, or only one side as a point)
+    falls back to the default cached Bhopal network, since a raw node id
+    only means anything against the specific graph it came from.
+    """
+    custom_hazards = data.get('custom_hazards', [])
+    start_raw = data.get('start')
+    end_raw = data.get('end')
+
+    if isinstance(start_raw, dict) and isinstance(end_raw, dict):
+        graph = build_graph_for_route(start_raw['lat'], start_raw['lng'], end_raw['lat'], end_raw['lng'])
+        if custom_hazards:
+            graph = apply_hazard_zones(graph, custom_hazards)
+        start_node = nearest_node(graph, start_raw['lat'], start_raw['lng'])
+        end_node = nearest_node(graph, end_raw['lat'], end_raw['lng'])
+        return graph, start_node, end_node
+
+    graph = build_scenario(custom_hazards)
+    start_node, end_node = parse_endpoints(data, graph)
+    return graph, start_node, end_node
 
 
 def path_to_latlng(graph, path):
@@ -290,11 +355,9 @@ def get_hazards():
 def get_route():
     data = request.json or {}
     algo = data.get('algorithm', 'a_star')
-    custom_hazards = data.get('custom_hazards', [])
 
     try:
-        graph = build_scenario(custom_hazards)
-        start_node, end_node = parse_endpoints(data, graph)
+        graph, start_node, end_node = build_scenario_and_endpoints(data)
 
         result = run_one_algorithm(algo, graph, start_node, end_node)
         if result["status"] == "no_path":
@@ -306,17 +369,15 @@ def get_route():
         return jsonify(result)
 
     except Exception as e:
-        return jsonify({"status": "error", "message": f"Routing failed: {str(e)}"}), 400
+        return jsonify({"status": "error", "message": f"Routing failed: {e}"}), 400
 
 
 @app.route('/api/compare-all', methods=['POST'])
 def compare_all():
     data = request.json or {}
-    custom_hazards = data.get('custom_hazards', [])
 
     try:
-        graph = build_scenario(custom_hazards)
-        start_node, end_node = parse_endpoints(data, graph)
+        graph, start_node, end_node = build_scenario_and_endpoints(data)
 
         results = {}
         for algo in ['a_star', 'dijkstra', 'd_star']:
@@ -338,7 +399,7 @@ def compare_all():
         return jsonify({"status": "success", "results": results})
 
     except Exception as e:
-        return jsonify({"status": "error", "message": f"Comparison failed: {str(e)}"}), 400
+        return jsonify({"status": "error", "message": f"Comparison failed: {e}"}), 400
 
 
 @app.route('/api/reset', methods=['POST'])

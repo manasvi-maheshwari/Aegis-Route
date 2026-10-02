@@ -23,8 +23,8 @@
 
 // Center of the real road network the backend builds. MUST match
 // backend/app.py's BASE_LAT/BASE_LNG.
-const BASE_LAT = 12.9716;
-const BASE_LNG = 79.1594;
+const BASE_LAT = 23.2599;
+const BASE_LNG = 77.4126;
 const MAP_VIEW = { center: [BASE_LAT, BASE_LNG], zoom: 14 };
 
 let startNode = null;   // null, or {lat, lng} once picked / resolved from a calculated route
@@ -51,6 +51,11 @@ const ALGO_EXPLAINERS = {
 // ----------------------------------------------------------------------------
 // Map setup
 // ----------------------------------------------------------------------------
+// Freely pannable/zoomable anywhere -- routing works for any two real-world
+// points, not just around one fixed demo location (see
+// backend/utils/graph_builder.build_graph_for_route). A new area takes a
+// few seconds (sometimes longer for a dense, never-fetched city) to build
+// the first time; see the loading state around calculateRoute/compareAll.
 const map = L.map('map', { zoomControl: true }).setView(MAP_VIEW.center, MAP_VIEW.zoom);
 
 // Dark basemap so it matches the command-center theme
@@ -343,12 +348,33 @@ function scenarioRequestBody() {
   return body;
 }
 
+// Both endpoints explicitly set means the backend extracts a real road
+// network sized around them from the local OSM data on the fly (see
+// build_graph_for_route) -- still fast (a couple seconds), but worth a
+// slightly different status message than the pre-sized default location.
+function isDynamicAreaRequest() {
+  return !!(startNode && endNode);
+}
+
+function setBusy(isBusy) {
+  const runBtn = document.getElementById('runBtn');
+  const compareBtn = document.getElementById('compareBtn');
+  runBtn.disabled = isBusy;
+  compareBtn.disabled = isBusy;
+}
+
 // ----------------------------------------------------------------------------
 // Run ONE selected algorithm
 // ----------------------------------------------------------------------------
 async function calculateRoute() {
   clearRoutes();
-  log(`Running ${selectedAlgo.replace('_', ' ')}…`, 'info');
+  log(
+    isDynamicAreaRequest()
+      ? `Running ${selectedAlgo.replace('_', ' ')}… extracting roads for this area (a few seconds).`
+      : `Running ${selectedAlgo.replace('_', ' ')}…`,
+    'info'
+  );
+  setBusy(true);
 
   try {
     const res = await fetch(`${API_BASE}/api/route`, {
@@ -373,6 +399,8 @@ async function calculateRoute() {
 
   } catch (e) {
     log('Request failed. Is the Flask backend running on port 5000?', 'err');
+  } finally {
+    setBusy(false);
   }
 }
 
@@ -381,7 +409,13 @@ async function calculateRoute() {
 // ----------------------------------------------------------------------------
 async function compareAll() {
   clearRoutes();
-  log('Running all algorithms for comparison…', 'info');
+  log(
+    isDynamicAreaRequest()
+      ? 'Running all algorithms for comparison… extracting roads for this area (a few seconds).'
+      : 'Running all algorithms for comparison…',
+    'info'
+  );
+  setBusy(true);
 
   try {
     const res = await fetch(`${API_BASE}/api/compare-all`, {
@@ -391,7 +425,7 @@ async function compareAll() {
     });
     const data = await res.json();
     if (data.status !== 'success') {
-      log('Comparison failed.', 'err');
+      log(data.message || 'Comparison failed.', 'err');
       return;
     }
 
@@ -424,6 +458,8 @@ async function compareAll() {
 
   } catch (e) {
     log('Comparison request failed. Is the backend running?', 'err');
+  } finally {
+    setBusy(false);
   }
 }
 
@@ -459,6 +495,51 @@ document.getElementById('compareBtn').addEventListener('click', compareAll);
 document.getElementById('resetBtn').addEventListener('click', resetScenario);
 
 // ----------------------------------------------------------------------------
+// Use the browser's current location, if granted, instead of defaulting to
+// Bhopal. The map already renders at MAP_VIEW (Bhopal) immediately on
+// boot so there's something on screen right away; this just re-centers it
+// if/when permission is granted, rather than blocking the initial render
+// on a permission prompt the user might take a while to respond to (or
+// never respond to at all). Also wired to a manual "Use my location"
+// button, so a user who declined on page load (or just moved) can ask
+// again at any time -- on failure there, the map simply stays wherever it
+// already was rather than resetting to anything.
+// ----------------------------------------------------------------------------
+function useCurrentLocationIfAvailable() {
+  if (!navigator.geolocation) {
+    log('Geolocation is not supported by this browser.', 'err');
+    return;
+  }
+  log('Requesting your location…', 'info');
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const { latitude, longitude } = pos.coords;
+      map.setView([latitude, longitude], MAP_VIEW.zoom);
+      log(`Centered on your current location (${latitude.toFixed(4)}, ${longitude.toFixed(4)}).`, 'ok');
+    },
+    (err) => {
+      // err.code: 1=PERMISSION_DENIED, 2=POSITION_UNAVAILABLE, 3=TIMEOUT.
+      // On laptops without GPS, location comes from the OS's WiFi-based
+      // positioning (e.g. macOS Location Services) -- if that's slow or
+      // disabled at the OS level, the browser reports a plain timeout
+      // rather than a permission error, which reads as a dead end unless
+      // called out explicitly.
+      let hint = err.message;
+      if (err.code === err.TIMEOUT) {
+        hint = 'timed out. On a laptop, this usually means the OS-level location service is slow or disabled -- check System Settings → Privacy & Security → Location Services (macOS) is on and this browser is allowed, then try "Use my location" again.';
+      } else if (err.code === err.PERMISSION_DENIED) {
+        hint = 'permission denied. You can grant it again via your browser\'s site settings, then click "Use my location".';
+      }
+      log(`Could not get your location: ${hint}`, 'err');
+    },
+    { enableHighAccuracy: false, timeout: 20000, maximumAge: 300000 }
+  );
+}
+
+document.getElementById('useLocationBtn').addEventListener('click', useCurrentLocationIfAvailable);
+
+// ----------------------------------------------------------------------------
 // Boot
 // ----------------------------------------------------------------------------
 loadDefaultHazard();
+useCurrentLocationIfAvailable();

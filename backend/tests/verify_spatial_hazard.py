@@ -9,7 +9,7 @@ from utils.hazard_mapper import (
     apply_hazard_zones, CORE_RISK, DANGER_RISK, DANGER_BUFFER_MULT, METERS_PER_RADIUS_UNIT,
 )
 
-BASE_LAT, BASE_LNG, SCALE = 12.9716, 79.1594, 0.005
+BASE_LAT, BASE_LNG, SCALE = 23.2599, 77.4126, 0.005  # MUST match graph_builder.BASE_LAT/BASE_LNG (Bhopal)
 
 EARTH_RADIUS_M = 6371000.0
 

@@ -187,6 +187,7 @@ html, body {
   transition: filter 0.15s, transform 0.05s;
 }
 .btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.5; cursor: wait; transform: none; }
 
 .btn-primary { background: var(--accent-cyan); color: #04121C; }
 .btn-primary:hover { filter: brightness(1.1); }
