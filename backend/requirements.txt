@@ -4,4 +4,4 @@ networkx
 numpy
 matplotlib
 pandas
-osmnx
+pyrosm

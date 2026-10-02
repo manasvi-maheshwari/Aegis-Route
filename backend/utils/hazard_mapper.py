@@ -48,7 +48,7 @@ def apply_hazard_zones(G, hazard_zones):
     the wider DANGER ring, is left passable but given a real risk cost.
     """
     scale = 0.005
-    base_lat, base_lng = 12.9716, 79.1594
+    base_lat, base_lng = 23.2599, 77.4126  # MUST match graph_builder.BASE_LAT/BASE_LNG (Bhopal)
 
     for zone in hazard_zones:
         if 'lat' in zone and 'lng' in zone:
